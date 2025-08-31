@@ -6,28 +6,14 @@ qa.py
 """
 
 from typing import Optional
-from .utils import model_path
 import os
+from gpt4all import GPT4All  # assuming gpt4all is installed
 
-# Try to import gpt4all python binding
-try:
-    from gpt4all import GPT4All
-    _has_gpt4all = True
-except Exception:
-    _has_gpt4all = False
-
-_GPT_MODEL = model_path("gpt4all")  # local model dir or weights path
+# Path to your local GPT4All model
+MODEL_FILE = "Meta-Llama-3-8B-Instruct.Q4_0.gguf"
+MODEL_PATH = "/Users/thamizharasan/Library/Application Support/nomic.ai/GPT4All"
 
 _gpt_handle = None
-if _has_gpt4all:
-    try:
-        # If you have a specific model binary (ggml), pass its filename, e.g. "ggml-model.bin"
-        # For the gpt4all package, you can pass model name or path.
-        # We'll attempt to initialize lazily in ask_question to avoid heavy imports on module load.
-        _gpt_handle = None
-    except Exception as e:
-        print("[qa] gpt4all init error:", e)
-        _gpt_handle = None
 
 def ask_question(image_description: str, question: str, max_tokens=256) -> str:
     """
@@ -42,22 +28,19 @@ def ask_question(image_description: str, question: str, max_tokens=256) -> str:
         "Answer:"
     )
 
-    if _has_gpt4all:
-        try:
-            # Lazy init
-            global _gpt_handle
-            if _gpt_handle is None:
-                # you must download a local model file (ggml or similar) and point to it here
-                # e.g., model_path("gpt4all") / "ggml-model.bin"
-                model_file_candidate = str(model_path("gpt4all") / "ggml-model.bin")
-                if not os.path.exists(model_file_candidate):
-                    # fallback: try default model name known to gpt4all
-                    model_file_candidate = "gpt4all-l13b-snoozy.bin"  # example
-                _gpt_handle = GPT4All(model_file_candidate)
-            resp = _gpt_handle.generate(context_prompt, max_tokens=max_tokens)
-            return resp
-        except Exception as e:
-            print("[qa] gpt4all generation error:", e)
+    try:
+        global _gpt_handle
+        if _gpt_handle is None:
+            model_file_candidate = os.path.join(MODEL_PATH, MODEL_FILE)
+            if not os.path.exists(model_file_candidate):
+                raise FileNotFoundError(f"Model file not found: {model_file_candidate}")
+            _gpt_handle = GPT4All(model_file_candidate, model_path=MODEL_PATH)
+
+        resp = _gpt_handle.generate(context_prompt, max_tokens=max_tokens)
+        return resp
+
+    except Exception as e:
+        print("[qa] gpt4all generation error:", e)
 
     # Fallback response (rule-based)
     q = question.lower()
@@ -66,5 +49,8 @@ def ask_question(image_description: str, question: str, max_tokens=256) -> str:
             return "Yes, I see a person in the scene."
         else:
             return "I do not detect a person based on the image description."
-    # generic:
-    return f"Based on the image: {image_description}. Regarding your question: I cannot run a local LLM here; please install GPT4All and place a ggml model in models/gpt4all/ to enable full answers."
+
+    return f"Based on the image: {image_description}. Regarding your question: I cannot run a local LLM here; please install GPT4All and place a gguf model in {MODEL_PATH} to enable full answers."
+
+
+print(ask_question("A man is standing below the tree","What is the man doing?"))

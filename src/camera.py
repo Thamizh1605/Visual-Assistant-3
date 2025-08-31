@@ -3,7 +3,8 @@
 camera.py
 - start_camera() returns an OpenCV VideoCapture object.
 - capture_image(cap) captures one frame and returns image path + PIL image or numpy array.
-- describe_image(image) tries to use BLIP (local checkpoint) to generate caption; if not available, falls back to simple detection/simulation.
+- describe_image(image) tries to use BLIP (Hugging Face Salesforce checkpoint) to generate caption; 
+  if not available, falls back to simple detection/simulation.
 """
 
 import os
@@ -11,27 +12,27 @@ from pathlib import Path
 import cv2
 import numpy as np
 from PIL import Image
-from .utils import model_path, ROOT
 
-# Try to import BLIP / transformers; if not available, we'll fallback.
+# Transformers import
 try:
-    from transformers import BlipProcessor, BlipForConditionalGeneration
+    from transformers import AutoProcessor, AutoModelForVision2Seq
+    import torch
     _has_blip = True
 except Exception:
     _has_blip = False
-from transformers import AutoProcessor, AutoModelForVision2Seq
-import torch
 
-# Load BLIP model + processor once at startup
-processor = AutoProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
-model = AutoModelForVision2Seq.from_pretrained("Salesforce/blip-image-captioning-base")
+# Load BLIP (Salesforce Hugging Face model) once
+processor, model, device = None, None, None
+if _has_blip:
+    try:
+        processor = AutoProcessor.from_pretrained("Salesforce/blip-image-captioning-base")
+        model = AutoModelForVision2Seq.from_pretrained("Salesforce/blip-image-captioning-base")
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        model = model.to(device)
+    except Exception as e:
+        print("[camera] Could not load Hugging Face BLIP model:", e)
+        _has_blip = False
 
-# Optional: move to GPU if available
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-model = model.to(device)
-
-
-MODEL_NAME = "blip"  # under models/blip/ you should put the checkpoint
 
 def start_camera(camera_index=0):
     cap = cv2.VideoCapture(camera_index)
@@ -39,7 +40,8 @@ def start_camera(camera_index=0):
         raise RuntimeError("Could not open camera. Check camera index/permissions.")
     return cap
 
-def capture_image(cap, save_dir=Path(ROOT) / "captures"):
+
+def capture_image(cap, save_dir="captures/captures"):
     save_dir = Path(save_dir)
     save_dir.mkdir(parents=True, exist_ok=True)
     ret, frame = cap.read()
@@ -47,34 +49,10 @@ def capture_image(cap, save_dir=Path(ROOT) / "captures"):
         raise RuntimeError("Failed to read from camera.")
     # Convert BGR -> RGB
     img_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-    filename = save_dir / f"capture_{int(__import__('time').time())}.jpg"
+    filename = save_dir / f"capture.jpg"
     Image.fromarray(img_rgb).save(filename)
     return filename, img_rgb
 
-# BLIP captioning - uses local model if available
-def load_blip_model(local_dir=None):
-    if not _has_blip:
-        return None
-    # Expect local_dir under models/blip or provided explicit path
-    local_dir = local_dir or model_path(MODEL_NAME)
-    if not Path(local_dir).exists():
-        print("[camera] BLIP model path not found:", local_dir)
-        return None
-    try:
-        processor = BlipProcessor.from_pretrained(str(local_dir))
-        model = BlipForConditionalGeneration.from_pretrained(str(local_dir))
-        return processor, model
-    except Exception as e:
-        print("[camera] Could not load BLIP model:", e)
-        return None
-
-# Try to load on import to speed up usage (if model present)
-_blip = load_blip_model()
-
-from pathlib import Path
-from PIL import Image
-import numpy as np
-import cv2
 
 def describe_image(image, processor=processor, model=model, device=device):
     """
@@ -84,6 +62,9 @@ def describe_image(image, processor=processor, model=model, device=device):
       - text description (string)
     """
     try:
+        if not _has_blip or processor is None or model is None:
+            raise RuntimeError("BLIP model not available")
+
         # Normalize input → PIL RGB
         if isinstance(image, (str, Path)):
             img = Image.open(image).convert("RGB")
@@ -96,7 +77,6 @@ def describe_image(image, processor=processor, model=model, device=device):
         inputs = processor(images=img, return_tensors="pt").to(device)
         output_ids = model.generate(**inputs, max_length=50)
         caption = processor.batch_decode(output_ids, skip_special_tokens=True)[0]
-
         return caption
 
     except Exception as e:
@@ -136,4 +116,4 @@ def describe_image(image, processor=processor, model=model, device=device):
             print("[camera.describe_image] DNN fallback failed:", e2)
 
         # Final fallback
-        return "I see a scene. (No caption model available — place BLIP model in models/blip/ to enable richer descriptions.)"
+        return "I see a scene. (No caption model available — BLIP failed.)"
