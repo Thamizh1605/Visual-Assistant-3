@@ -1,0 +1,25 @@
+# Basic
+numpy
+opencv-python
+pillow
+sounddevice
+pyttsx3
+aiohttp
+flask
+
+# Vosk for offline ASR
+vosk
+
+# Transformers + torch (for BLIP or multimodal models)
+transformers>=4.30.0
+torch     # install CPU or GPU wheel manually if needed
+
+# Optional faster local models:
+# gpt4all python binding (if you plan to use it)
+gpt4all
+
+# Optional: ultralytics for object detection (YOLOv8)
+ultralytics
+
+# Optional: sentence-transformers, faiss, etc. for indexing (if needed)
+sentence-transformers
